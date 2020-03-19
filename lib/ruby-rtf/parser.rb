@@ -147,11 +147,13 @@ module RubyRTF
       # RTF font sizes are in half-points. divide by 2 to get points
       when :fs then add_section!(:font_size => (val.to_f / 2.0))
       when :b then
-        puts "---------- bold command #{val}----------"
         if val
           @formatting_stack.pop
+          puts "---------- add_section! no bold modifier ----------"
           add_section!
         else
+          puts "---------- add_sectin(:bold => true) ----------"
+
           add_section!(:bold => true)
         end
 
