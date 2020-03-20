@@ -1,4 +1,5 @@
 # encoding: utf-8
+require 'pry'
 
 module RubyRTF
   # Handles the parsing of RTF content into an RubyRTF::Document
@@ -7,15 +8,17 @@ module RubyRTF
 
     # @return [Array] The current formatting block to use as the basis for new sections
     attr_reader :formatting_stack
-
+    attr_reader :group_stack
     attr_reader :doc
 
     # @param unknown_control_warning_enabled [Boolean] Whether to write unknown control directive warnings to STDERR
-    def initialize(unknown_control_warning_enabled: true)
+    def initialize(unknown_control_warning_enabled: false)
       # default_mods needs to be the same has in the formatting stack and in
       # the current_section modifiers or the first stack ends up getting lost.
-      default_mods = {}
+      default_mods = {paragraph_modifiers: {}}
       @formatting_stack = [default_mods]
+      @group_stack = [default_mods]
+      
       @current_section = {:text => '', :modifiers => default_mods}
       @unknown_control_warning_enabled = unknown_control_warning_enabled
 
@@ -47,21 +50,21 @@ module RubyRTF
           current_pos = handle_control(name, val, src, current_pos)
 
         when '{' then
-          add_section!
-          group_level += 1
+          push_group
 
         when '}' then
-          pop_formatting!
-          add_section!
-          group_level -= 1
+          pop_group
 
         when *["\r", "\n"] then ;
-        else current_section[:text] << char
+        else 
+          
+          current_section[:text] << char
         end
       end
 
       unless current_section[:text].empty?
-        current_context << current_section
+        xadd_section!
+        #current_context << current_section.clone
       end
 
       raise RubyRTF::InvalidDocument.new("Unbalanced {}s") unless group_level == 0
@@ -94,18 +97,22 @@ module RubyRTF
         return [:hex, val, current_pos]
       end
 
+
       while (true)
         break if current_pos >= max_len
         break if STOP_CHARS.include?(src[current_pos])
 
         current_pos += 1
       end
+
+      puts "test: #{src[current_pos-5,5]}"
       return [src[current_pos].to_sym, nil, current_pos + 1] if start == current_pos
 
       contents = src[start, current_pos - start]
       m = contents.match(/([\*a-z]+)(\-?\d+)?\*?/)
       ctrl = m[1].to_sym
       val = m[2].to_i unless m[2].nil?
+      puts "<#{contents}>  {#{ctrl}}"
 
       # we advance past the optional space if present
       current_pos += 1 if src[current_pos] == ' '
@@ -123,6 +130,7 @@ module RubyRTF
     #
     # @api private
     def handle_control(name, val, src, current_pos)
+      puts ">>>>>>>>>>>>>> [#{name}]"
       case(name)
       when :rtf then ;
       when :deff then @doc.default_font = val
@@ -142,40 +150,33 @@ module RubyRTF
       when :info  then current_pos = parse_info(src, current_pos)
       when :* then current_pos = parse_skip(src, current_pos)
 
-      when :f then add_section!(:font => @doc.font_table[val])
+      #when :f then add_section!(:font => @doc.font_table[val])
 
       # RTF font sizes are in half-points. divide by 2 to get points
-      when :fs then add_section!(:font_size => (val.to_f / 2.0))
+      when :fs then set_modifier(:font_size => (val.to_f / 2.0))
       when :b then
         if val
-          @formatting_stack.pop
-          puts "---------- add_section! no bold modifier ----------"
-          add_section!
+          unset_modifier(:bold)
         else
-          puts "---------- add_sectin(:bold => true) ----------"
-
-          add_section!(:bold => true)
+          set_modifier(:bold => true)
         end
-
       when :i then
         if val
-          @formatting_stack.pop
-          add_section!
+          unset_modifier(:italic)
         else
-          add_section!(:italic => true)
+          set_modifier(:italic => true)
         end
 
       when :ul then
         if val
-          @formatting_stack.pop
-          add_section!
+          unset_modifier(:italic)
         else
-          add_section!(:underline => true)
+          set_modifier(:underline => true)
         end
       when :ulnone then
-        current_section[:modifiers][:underline] = false
-        @formatting_stack.pop
+        unset_modifier(:underline)
 
+=begin
       when :super then add_section!(:superscript => true)
       when :sub then add_section!(:subscript => true)
       when :strike then add_section!(:strikethrough => true)
@@ -183,7 +184,9 @@ module RubyRTF
       when :ql then add_section!(:justification => :left)
       when :qr then add_section!(:justification => :right)
       when :qj then add_section!(:justification => :full)
-      when :qc then add_section!(:justification => :center)
+=end
+      when :qc then set_paragraph_modifier(:justification => :center)
+=begin        
       when :fi then add_section!(:first_line_indent => RubyRTF.twips_to_points(val))
       when :li then add_section!(:left_indent => RubyRTF.twips_to_points(val))
       when :ri then add_section!(:right_indent => RubyRTF.twips_to_points(val))
@@ -226,13 +229,16 @@ module RubyRTF
       when :tab then add_modifier_section({:tab => true}, "\t")
       when :emdash then add_modifier_section({:emdash => true}, "--")
       when :endash then add_modifier_section({:endash => true}, "-")
-
-      when *[:line, :"\n"] then add_modifier_section({:newline => true}, "\n")
+=end
+      when *[:line, :"\n"] then 
+        add_modifier_section({:newline => true}, "\n")
+       
       when :"\r" then ;
-
+=begin
       when :par then add_modifier_section({:paragraph => true})
-      when *[:pard, :plain] then reset_current_section!
-
+=end        
+      when *[:pard, :plain] then clear_paragraph_modifiers
+=begin
       when :trowd then
         table = nil
         table = doc.sections.last[:modifiers][:table] if doc.sections.last && doc.sections.last[:modifiers][:table]
@@ -242,13 +248,13 @@ module RubyRTF
           table = RubyRTF::Table.new
 
           if !current_section[:text].empty?
-            force_section!({:table => table})
+            #force_section!({:table => table})
           else
             current_section[:modifiers][:table] = table
             pop_formatting!
           end
 
-          force_section!
+          #force_section!
           pop_formatting!
         end
 
@@ -273,7 +279,7 @@ module RubyRTF
 
         table = current_context.table if current_context.respond_to?(:table)
 
-        force_section! #unless current_section[:text].empty?
+        #force_section! #unless current_section[:text].empty?
         reset_current_section!
 
         @context_stack.pop
@@ -309,7 +315,9 @@ module RubyRTF
             warn "Unknown control #{name.inspect} with #{val} at #{current_pos}"
           end
         end
+=end        
       end
+
       current_pos
     end
 
@@ -504,26 +512,30 @@ module RubyRTF
     end
 
     def add_modifier_section(mods = {}, text = nil)
-      force_section!(mods, text)
-      pop_formatting!
+      xadd_section!
 
-      force_section!
-      pop_formatting!
+      puts "--------- add modifier section ----------"
+      
+      mods.merge!(:paragraph_modifiers=>{})
+      section = {text: text, modifiers: mods}
+      pp section
+      current_context << section
+      #xadd_section!
+      #current_section[:modifiers].mods.dup)
+      #current_section[:text] = text
+      #xadd_section!
+
     end
 
-    def add_section!(mods = {})
-      if current_section[:text].empty?
-        current_section[:modifiers].merge!(mods)
-      else
-        force_section!(mods)
-      end
-    end
 
     # Keys that aren't inherited
     BLACKLISTED = [:paragraph, :newline, :tab, :lquote, :rquote, :ldblquote, :rdblquote]
-    def force_section!(mods = {}, text =  nil)
+    
+    def add_section!(mods = {}, text =  nil)
+      return
+      @current_section[:modifiers] = active_group
       current_context << @current_section
-
+      #pop_formatting!
       # The modifiers for the new section
       modifiers = {}
 
@@ -535,9 +547,32 @@ module RubyRTF
 
       modifiers.merge!(mods)
 
-      formatting_stack.push(modifiers)
+      #formatting_stack.push(modifiers)
 
-      @current_section = {:text => (text || ''), :modifiers => modifiers}
+      @current_section = {:text => '', :modifiers => nil}
+    end
+
+    def xadd_section!(mods = {}, text =  nil)
+      puts "--------- add section ----------"
+      current_section[:modifiers] = active_group.dup
+      current_section[:modifiers][:paragraph_modifiers] = active_group[:paragraph_modifiers].dup
+      pp current_section
+      current_context << current_section.clone
+      #pop_formatting!
+      # The modifiers for the new section
+      modifiers = {}
+
+      fs = formatting_stack.last || {}
+      fs.each_pair do |k, v|
+        next if BLACKLISTED.include?(k)
+        modifiers[k] = v
+      end
+
+      modifiers.merge!(mods)
+
+      #formatting_stack.push(modifiers)
+
+      @current_section = {:text => '', modifiers: {paragraph_modifiers: {}}}
     end
 
     # Resets the current section to default formating
@@ -548,6 +583,7 @@ module RubyRTF
       current_section[:modifiers].clear
       current_section[:modifiers][:paragraph] = true if paragraph
     end
+
 
     def current_context
       @context_stack.last || doc
@@ -560,5 +596,67 @@ module RubyRTF
     def pop_formatting!
       formatting_stack.pop if formatting_stack.length > 1
     end
+
+    
+    def unset_modifier(key)
+      xadd_section!
+      #pp "======== unset modifier before ========"
+      #pp active_group
+      #pp "======== unset modifier after ========"
+      active_group.delete(key)
+      #pp active_group
+      #pp "====================================="
+    end
+
+    def set_modifier(mod)
+      xadd_section!
+      #pp "======== set modifier before ========"
+      #pp active_group
+      #pp "======== set modifier after  ========"
+      active_group.merge!(mod)
+      #pp active_group
+      #pp "====================================="
+
+    end
+    
+    def set_paragraph_modifier(mod)
+      xadd_section!
+      #pp "======== set paragraph modifier before ========"
+      #pp active_group
+      #pp "======== set modifier after  ========"
+      active_group[:paragraph_modifiers].merge!(mod)
+      #pp active_group
+      #pp "====================================="
+
+    end
+
+    def clear_paragraph_modifiers
+      #xadd_section!
+      puts "$$$$$$$$$$$$$$$$ clear paragraph modifiers $$$$$$$$$$$$$$$$"
+      active_group[:paragraph_modifiers].clear
+    end
+
+    def active_group
+      return group_stack.last
+    end
+
+    def push_group
+      xadd_section!
+      puts ">>>>>>> push group"
+      group_stack.push(active_group.clone)
+    end
+
+    def pop_group
+      xadd_section!
+      puts "=========== pop active_group before =============="
+      pp active_group
+      puts "=========== pop active_group after =============="
+      group_stack.pop
+      pp active_group
+      puts "================================================="
+    end
+
   end
+
+
 end
