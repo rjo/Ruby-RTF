@@ -105,14 +105,12 @@ module RubyRTF
         current_pos += 1
       end
 
-      puts "test: #{src[current_pos-5,5]}"
       return [src[current_pos].to_sym, nil, current_pos + 1] if start == current_pos
 
       contents = src[start, current_pos - start]
       m = contents.match(/([\*a-z]+)(\-?\d+)?\*?/)
       ctrl = m[1].to_sym
       val = m[2].to_i unless m[2].nil?
-      puts "<#{contents}>  {#{ctrl}}"
 
       # we advance past the optional space if present
       current_pos += 1 if src[current_pos] == ' '
@@ -130,7 +128,6 @@ module RubyRTF
     #
     # @api private
     def handle_control(name, val, src, current_pos)
-      puts ">>>>>>>>>>>>>> [#{name}]"
       case(name)
       when :rtf then ;
       when :deff then @doc.default_font = val
@@ -514,11 +511,11 @@ module RubyRTF
     def add_modifier_section(mods = {}, text = nil)
       xadd_section!
 
-      puts "--------- add modifier section ----------"
+      #puts "--------- add modifier section ----------"
       
       mods.merge!(:paragraph_modifiers=>{})
       section = {text: text, modifiers: mods}
-      pp section
+      #pp section
       current_context << section
       #xadd_section!
       #current_section[:modifiers].mods.dup)
@@ -553,10 +550,10 @@ module RubyRTF
     end
 
     def xadd_section!(mods = {}, text =  nil)
-      puts "--------- add section ----------"
+      #puts "--------- add section ----------"
       current_section[:modifiers] = active_group.dup
       current_section[:modifiers][:paragraph_modifiers] = active_group[:paragraph_modifiers].dup
-      pp current_section
+      #pp current_section
       current_context << current_section.clone
       #pop_formatting!
       # The modifiers for the new section
@@ -632,7 +629,7 @@ module RubyRTF
 
     def clear_paragraph_modifiers
       #xadd_section!
-      puts "$$$$$$$$$$$$$$$$ clear paragraph modifiers $$$$$$$$$$$$$$$$"
+      #puts "$$$$$$$$$$$$$$$$ clear paragraph modifiers $$$$$$$$$$$$$$$$"
       active_group[:paragraph_modifiers].clear
     end
 
@@ -642,18 +639,18 @@ module RubyRTF
 
     def push_group
       xadd_section!
-      puts ">>>>>>> push group"
+      #puts ">>>>>>> push group"
       group_stack.push(active_group.clone)
     end
 
     def pop_group
       xadd_section!
-      puts "=========== pop active_group before =============="
-      pp active_group
-      puts "=========== pop active_group after =============="
+      #puts "=========== pop active_group before =============="
+      #pp active_group
+      #puts "=========== pop active_group after =============="
       group_stack.pop
-      pp active_group
-      puts "================================================="
+      #pp active_group
+      #puts "================================================="
     end
 
   end
