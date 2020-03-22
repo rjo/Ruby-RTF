@@ -1,5 +1,4 @@
 # encoding: utf-8
-require 'pry'
 
 module RubyRTF
   # Handles the parsing of RTF content into an RubyRTF::Document
