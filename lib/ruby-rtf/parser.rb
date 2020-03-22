@@ -128,6 +128,8 @@ module RubyRTF
     #
     # @api private
     def handle_control(name, val, src, current_pos)
+      #puts "#{name}"
+
       case(name)
       when :rtf then ;
       when :deff then @doc.default_font = val
@@ -183,6 +185,7 @@ module RubyRTF
       when :qj then add_section!(:justification => :full)
 =end
       when :qc then set_paragraph_modifier(:justification => :center)
+      when :page then set_mode_modifier(:page => true)
 =begin        
       when :fi then add_section!(:first_line_indent => RubyRTF.twips_to_points(val))
       when :li then add_section!(:left_indent => RubyRTF.twips_to_points(val))
@@ -314,7 +317,6 @@ module RubyRTF
         end
 =end        
       end
-
       current_pos
     end
 
@@ -616,6 +618,12 @@ module RubyRTF
 
     end
     
+    def set_mode_modifier(mode)
+      xadd_section!
+      current_context << {:text => '', modifiers: {paragraph_modifiers: mode}}
+      current_section = {:text => '', modifiers: {paragraph_modifiers: {}}}
+    end
+
     def set_paragraph_modifier(mod)
       xadd_section!
       #pp "======== set paragraph modifier before ========"
